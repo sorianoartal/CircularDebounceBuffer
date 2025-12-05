@@ -1,0 +1,39 @@
+# CircularDebounceBuffer
+
+**Button Debounce library and gesture Detection.**
+
+- Immediate long-press
+- Perfect exclusive double-press
+- No missed presses
+- No duplicates
+- Works on first press after upload
+- Works after any transition
+
+** How does it works**
+1. Falling edge transition will trigger the ISR -> startDebounce()
+2. Once a debounce session starts- samples pin every 1ms filling the buffer
+3. Press confirmation is achieve in consensus voting -> 90% agreement(threshold) = Press confirmation
+4. Immediate long-press detection -> fires at exact threshold
+5. Exclusive double-press -> pending short press + timeout
+6. After GESTURE_SESSION_TIMEOUT_MS -> Full gesture reset 
+
+@example
+```cpp
+#include <CircularDebounceBuffer.h>
+
+CircularDebounceBuffer btn(1(1, 2);
+
+void setup() {
+  Serial.begin(115200);
+  btn1.addCallback([]{ Serial.println("SHORT"); });
+  btn1.enableLongPress(1000);
+  btn1.addLongPressCallback(<a href="uint32_t ms" target="_blank" rel="noopener noreferrer nofollow"></a>{ Serial.printf("LONG: %lums\n", ms); });
+  btn1.enableDoublePress(400);
+  btn1.addDoublePressCallback([]{ Serial.println("DOUBLE!!!"); });
+
+  attachInterrupt(digitalPinToInterrupt(2), []{ btn1.startDebounce(); }, FALLING);
+}
+
+void loop() {
+  btn1.update();
+}

@@ -7,12 +7,7 @@ static constexpr uint8_t BUTTON_PIN = 2; // Arduino Nano pin interrupts (2,3)
 
 CircularDebounceBuffer btn(1, BUTTON_PIN); // pin 2, active-low
  
-/**
- * @brief 
- * 
- * @param fmt 
- * @param ... 
- */
+/**/
 void serialPrintf(const char* fmt, ...)
 {
   char buf[64];              // adjust size, beware of RAM limits on AVR

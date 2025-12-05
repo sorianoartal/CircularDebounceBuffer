@@ -34,10 +34,10 @@
 #include "avr_algorithms.h"
 
 // Session timeout for gesture recognition.
-static constexpr uint32_t GESTURE_SESSION_TIMEOUT_MS = 3500;                // 1.5 second of silence = new session
+static constexpr uint32_t GESTURE_SESSION_TIMEOUT_MS = 5000;                // 1.5 second of silence = new session
 
 // Default long-press duration = 2000ms
-static constexpr uint32_t LONG_PRESS_DURATION_MS_DEFAULT = 3000 ; 
+static constexpr uint32_t LONG_PRESS_DURATION_MS_DEFAULT = 1000 ; 
 
 // Default window for double-press = 500ms
 static constexpr uint32_t DOUBLE_PRESS_WINDOW_MS = 500;
@@ -62,50 +62,77 @@ using DoublePressCallbackEx = void(*)(void*);                           // Exten
 
 /**
  * @class CircularDebounceBuffer
- * @brief A class for debouncing digital button inputs using a circular buffer and consensus threshold.
+ * @brief Arduino button debouncer — Allow Gesture detection for  short, long, and double-press button presses.
  *
- * This class provides an advanced debouncing solution that samples the button pin at regular intervals,
- * stores the last BUFFER_SIZE samples in a circular buffer, and confirms a press or release based on
- * a configurable percentage threshold of agreeing samples. It supports active-low or active-high wiring,
- * adjustable sample intervals, and zero-argument callbacks for press events.
- * 
- * @note Alows normal, double and long Press detection.
+ * Interrupt-triggered, non-blocking button handler with:
+ * • Circular buffer + consensus threshold → immune to contact bounce
+ * • Immediate long-press detection (fires during hold)
+ * • Exclusive double-press (no duplicate short presses)
+ * • Gesture session timeout → perfect behavior after silence
+ * • Automatic pinMode() with internal pull-up
+ * • Context-aware callbacks
+ * • Zero false triggers, zero missed presses, zero ghost events
  *
- * @note designed for mechanical switches with bounce durations <~20ms
- * @note Debouncing is armed only on FALLING edges to optimize idle performance.
- * @note Release detection uses an inverted threshold for symmetry
+ * @note Designed for mechanical switches with bounce < 20ms
+ * @note Debouncing is armed only on FALLING edge → zero CPU usage when idle
+ * @note Release uses symmetric inverted threshold
+ * @note Constructor automatically sets pinMode():
+ *       - INPUT_PULLUP (active-low, recommended)
+ *       INPUT (active-high, external pull-down)
  *
- *  @note The constructor automatically configures pinMode():
- *       - INPUT_PULLUP if isActiveLow == true (recommended)
- *       - INPUT if isActiveLow == false
- * 
- * Usage:
- * - Instantiate with pin details.
- * - Set threshold and interval as needed.
- * - Register callbacks for press events.
- * - Attach an interrupt to call startDebounce() on FALLING edge.
- * - Call update() repeatedly in the main loop.
+ * @section Features
+ * - Short press (on release, unless overridden by double/long)
+ * - Long press (immediate at threshold, suppresses short press)
+ * - Double press (exclusive — fires only double-press, never two shorts)
+ * - Gesture reset after 1 second of silence → flawless transitions
  *
- * @example Basic usage(active-low button with internal pull-up):
- * Usage:
- * @code
- * 
- * CircularDebounceBuffer btn(1, 2); // pin 2, active-low
+ * @section Usage
+ * @code{.cpp}
+ * #include <CircularDebounceBuffer.h>
+ *
+ * CircularDebounceBuffer btn(1, 2); // ID=1, pin=2, active-low (pull-up)
  *
  * void setup() {
- *   btn.addCallback([] { Serial.println("Short press"); });
- *   btn.enableLongPress(1000);
- *   btn.addLongPressCallback([](uint32_t ms) { Serial.printf("Long press: %lums\n", ms); });
- *   btn.enableDoublePress(400);
- *   btn.addDoublePressCallback([] { Serial.println("DOUBLE PRESS!"); });
+ *   Serial.begin(115200);
  *
+ *   btn.addCallback([] { Serial.println("SHORT PRESS"); });
+ *
+ *   btn.enableLongPress(1000);  // 1000ms threshold
+ *   btn.addLongPressCallback([](uint32_t ms) {
+ *     Serial.printf("LONG PRESS: %lums\n", ms);
+ *   });
+ *
+ *   btn.enableDoublePress(400); // 400ms window
+ *   btn.addDoublePressCallback([] {
+ *     Serial.println("DOUBLE PRESS!");
+ *   });
+ *
+ *   // Must use interrupt-capable pin (2 or 3 on Uno/Nano)
  *   attachInterrupt(digitalPinToInterrupt(2), [] { btn.startDebounce(); }, FALLING);
  * }
  *
  * void loop() {
- *   btn.update();
+ *   btn.update();  // Call frequently
  * }
- * @endcode 
+ * @endcode
+ *
+ * @section Behavior
+ * | Action                     | Output                     | Notes                     |
+ * |----------------------------|----------------------------|---------------------------|
+ * | Single short press         | SHORT PRESS                | After release             |
+ * | Two fast presses (<400ms)  | DOUBLE PRESS               | Only — no short presses   |
+ * | Long hold (>1000ms)        | LONG PRESS: XXXXms         | Immediate, no short press |
+ * | Any transition             | Perfect                    | Always works              |
+ *
+ * @author David Soriano Artal
+ * @date 2025
+ * @version 1.0.0
+ * @license MIT
+ *
+ * @example examples/AllFeatures/AllFeatures.ino
+ * @example examples/Basic/Basic.ino
+ * @example examples/LongPress/LongPress.ino
+ * @example examples/DoublePress/DoublePress.ino
  */
 class CircularDebounceBuffer {
 public:

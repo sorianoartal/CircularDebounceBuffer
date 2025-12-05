@@ -349,7 +349,7 @@ void CircularDebounceBuffer::startDebounce()
  *               
  *
  * Notes:
- *  - Time arithmetic uses `micros()` unsigned wrap-safe subtraction.
+ *  - Time arithmetic uses 'micros()' unsigned wrap-safe subtraction.
  *  - The buffer is fully cleared on release to avoid residual bits influencing
  *    the next cycle’s consensus.
  *  - The method is **not ISR-safe**; call it from the main loop/task, not an ISR.
