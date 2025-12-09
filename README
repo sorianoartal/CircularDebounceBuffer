@@ -21,7 +21,7 @@
 ```cpp
 #include <CircularDebounceBuffer.h>
 
-CircularDebounceBuffer btn(1(1, 2);
+CircularDebounceBuffer btn(1, 2);
 
 void setup() {
   Serial.begin(115200);
