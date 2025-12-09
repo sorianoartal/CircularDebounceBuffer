@@ -27,7 +27,7 @@ void setup() {
   Serial.begin(115200);
   btn1.addCallback([]{ Serial.println("SHORT"); });
   btn1.enableLongPress(1000);
-  btn1.addLongPressCallback(<a href="uint32_t ms" target="_blank" rel="noopener noreferrer nofollow"></a>{ Serial.printf("LONG: %lums\n", ms); });
+  btn1.addLongPressCallback([]{ Serial.printf("LONG: %lums\n", ms); });
   btn1.enableDoublePress(400);
   btn1.addDoublePressCallback([]{ Serial.println("DOUBLE!!!"); });
 
