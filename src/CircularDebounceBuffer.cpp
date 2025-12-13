@@ -15,7 +15,8 @@ CircularDebounceBuffer::CircularDebounceBuffer(
     uint8_t id,
     uint8_t pin,
     bool    isActiveLow,
-    uint32_t delayBetweenUs
+    uint32_t delayBetweenUs,
+    debounceMode::Mode mode
 )
 : _pin_ID(id),
   _pin(pin),
@@ -39,10 +40,14 @@ CircularDebounceBuffer::CircularDebounceBuffer(
   _doublePressMaxWindowMs(DOUBLE_PRESS_WINDOW_MS),
   _lastShortReleaseTimeUs(0),
   _waitingForSecondPress(false),
-  _pendingShortPress(false)
+  _pendingShortPress(false),
+  _debounceMode(mode)
 {
     pinMode(_pin, _isActiveLow ? INPUT_PULLUP : INPUT);
     clearBuffer();
+
+    // In polling mode we always ready to sample
+    if(_debounceMode == debounceMode::Mode::POLLING) _debouncing = true;
 }
 
 /**
@@ -280,6 +285,9 @@ void CircularDebounceBuffer::addDoublePressCallbackEx(DoublePressCallbackEx cb, 
  */
 void CircularDebounceBuffer::startDebounce()
 {
+    // Skip if we are in polling mode
+    if(_debounceMode == debounceMode::Mode::POLLING) return; // In polling mode we are always debouncing
+
     // Only arm if we’re not already debouncing AND the last stable state is “not pressed.”
     if (!_debouncing && !_stableState) 
     {
@@ -348,6 +356,9 @@ void CircularDebounceBuffer::startDebounce()
  *                   fire `fireAllDoublePress()` and clear waiting.
  *               
  *
+ * @note If double-press is enabled, a short-press callback may be delayed until the
+ *       double-press time window expires (to confirm it was not a double press).
+ * 
  * Notes:
  *  - Time arithmetic uses 'micros()' unsigned wrap-safe subtraction.
  *  - The buffer is fully cleared on release to avoid residual bits influencing
@@ -379,9 +390,19 @@ void CircularDebounceBuffer::update()
         }
     }
 
-
-    // Validate if we are on an active debounce Session, if not return 
-    if (!_debouncing) return;
+    // CHECK IF DEBOUNCE IS ACTIVE
+    if(_debounceMode == debounceMode::Mode::POLLING)
+    {
+        // In polling mode we are always debouncing
+        _debouncing = true;
+    }
+    else
+    {
+        // HERE: we are in INTERRUPT_DRIVEN mode
+        // Validate if we are on an active debounce Session, if not return 
+        if (!_debouncing) return;
+    }
+    
 
     // Only proceed if the per-sample delay has elapse (rate-limit sample) 
     if (!_delayBetweenSamples.isDelayTimeElapsed()) return;

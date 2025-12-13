@@ -5,6 +5,8 @@
  *
  * This class implements a circular buffer-based debouncing algorithm for handling noisy button presses on micro-controllers like Arduino.
  * It collects periodic samples of the pin state and uses a consensus threshold to confirm presses and releases, making it resilient to bounce.
+ * 
+ *
  * Debouncing is triggered by a FALLING edge interrupt and performed non-blockingly in the main loop.
  * It uses a fixed-size circular buffer to store recent samples and confirms state changes only
  * when a configurable percentage of samples agree (consensus threshold).
@@ -32,6 +34,20 @@
 #include "Delay.h"   
 #include <stdarg.h>
 #include "avr_algorithms.h"
+
+
+/**
+ * @brief Provides debounce modes for CircularDebounceBuffer.
+ * 
+ * @details
+ * This enum defines the available debounce modes for the CircularDebounceBuffer class.
+ */
+namespace debounceMode
+{
+    enum class Mode{INTERRUPT_DRIVEN, POLLING};
+};
+
+// ========================
 
 // Session timeout for gesture recognition.
 static constexpr uint32_t GESTURE_SESSION_TIMEOUT_MS = 5000;                // 1.5 second of silence = new session
@@ -85,34 +101,64 @@ using DoublePressCallbackEx = void(*)(void*);                           // Exten
  * - Long press (immediate at threshold, suppresses short press)
  * - Double press (exclusive — fires only double-press, never two shorts)
  * - Gesture reset after 1 second of silence → flawless transitions
+ * 
+ * Modes:
+ *  - POLLING: no ISR needed, always samples in update()and debounce at the configured interval
+ *  - INTERRUPT_DRIVEN: call startDebounce() from raw edge ISR , then samples in update() at the configured interval when debouncing
  *
  * @section Usage
  * @code{.cpp}
- * #include <CircularDebounceBuffer.h>
+ * #include <Arduino.h>
+ * #include "CircularDebounceBuffer.h"
+ * #include <stdarg.h>
  *
- * CircularDebounceBuffer btn(1, 2); // ID=1, pin=2, active-low (pull-up)
  *
- * void setup() {
- *   Serial.begin(115200);
+ * static constexpr uint8_t BUTTON_PIN = 2;    // Arduino Nano pin interrupts (2,3)
+ * static constexpr uint8_t BUTTON2_PIN = 12;  // Arduino Nano pin
  *
- *   btn.addCallback([] { Serial.println("SHORT PRESS"); });
+ * CircularDebounceBuffer btn  = CircularDebounceBuffer::CreateInterruptDrive(0,BUTTON_PIN, true, 1000); 
+ * CircularDebounceBuffer btn2 = CircularDebounceBuffer::CreatePolling(1, BUTTON2_PIN, true,1000);                                  // PIN 12, active-low, polling mode 
+ *   
  *
- *   btn.enableLongPress(1000);  // 1000ms threshold
- *   btn.addLongPressCallback([](uint32_t ms) {
- *     Serial.printf("LONG PRESS: %lums\n", ms);
- *   });
  *
- *   btn.enableDoublePress(400); // 400ms window
- *   btn.addDoublePressCallback([] {
- *     Serial.println("DOUBLE PRESS!");
- *   });
- *
- *   // Must use interrupt-capable pin (2 or 3 on Uno/Nano)
- *   attachInterrupt(digitalPinToInterrupt(2), [] { btn.startDebounce(); }, FALLING);
+ * void serialPrintf(const char* fmt, ...)
+ * {
+ *  char buf[64];              // adjust size, beware of RAM limits on AVR
+ *  va_list args;
+ *  va_start(args, fmt);
+ *  vsnprintf(buf, sizeof(buf), fmt, args);
+ *  va_end(args);
+ *  Serial.print(buf);
  * }
  *
- * void loop() {
- *   btn.update();  // Call frequently
+ *
+ *
+ * void setup() 
+ * {
+ *  Serial.begin(115200);
+ *  while(!Serial);
+ *
+ *
+ *    
+ *  btn.addCallback([] { Serial.println("\nSHORT PRESS!!!\n"); });
+ *  btn.enableLongPress(2000);
+ *  btn.addLongPressCallback([](uint32_t ms) { serialPrintf("\nLONG PRESS!!! : %lums\n", ms); });
+ *  btn.enableDoublePress(400);
+ *  btn.addDoublePressCallback([] { Serial.println("\nDOUBLE PRESS!!!\n"); });  
+ *  
+ *  attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), [] { btn.startDebounce(); }, FALLING);
+ * 
+ *
+ *  // Polling
+ *  btn2.addCallback([]{Serial.println("\nSHORT PRESS!!!\n"); });
+ *
+ * 
+ * }
+ * 
+ * void loop()
+ * {
+ *  btn.update();
+ *  btn2.update();
  * }
  * @endcode
  *
@@ -136,6 +182,50 @@ using DoublePressCallbackEx = void(*)(void*);                           // Exten
  */
 class CircularDebounceBuffer {
 public:
+
+    //                           === FACTORY METHODS ===
+
+    /**
+     * @brief Factory method to create a CircularDebounceBuffer in POLLING mode.
+     * 
+     * @param id                An arbitrary ID (not used by zero‐arg callbacks)
+     * @param pin               The Arduino digital pin to debounce
+     * @param isActiveLow       If true, a LOW read means “pressed”
+     * @param delayBetweenUs    How many microseconds between each raw sample
+     * @return CircularDebounceBuffer instance in POLLING mode
+     */
+    static CircularDebounceBuffer CreatePolling(
+        uint8_t id,
+        uint8_t pin,
+        bool    isActiveLow = true,
+        uint32_t delayBetweenUs = 1000
+    )
+    {
+        return CircularDebounceBuffer(id, pin, isActiveLow, delayBetweenUs, debounceMode::Mode::POLLING);
+    }
+
+    /**
+     * @brief Factory method to create a CircularDebounceBuffer in INTERRUPT_DRIVEN mode.
+     * 
+     * @param id                An arbitrary ID (not used by zero‐arg callbacks)
+     * @param pin               The Arduino digital pin to debounce
+     * @param isActiveLow       If true, a LOW read means “pressed”
+     * @param delayBetweenUs    How many microseconds between each raw sample
+     * @return CircularDebounceBuffer instance in INTERRUPT_DRIVEN mode
+     */
+    static CircularDebounceBuffer CreateInterruptDriven(
+        uint8_t id,
+        uint8_t pin,
+        bool    isActiveLow = true,
+        uint32_t delayBetweenUs = 1000
+    )
+    {
+        return CircularDebounceBuffer(id, pin, isActiveLow, delayBetweenUs, debounceMode::Mode::INTERRUPT_DRIVEN);
+    }
+
+    // ==================================================================================
+    
+    
     /**
      * @param id                An arbitrary ID (not used by zero‐arg callbacks)
      * @param pin               The Arduino digital pin to debounce
@@ -146,7 +236,8 @@ public:
         uint8_t id,
         uint8_t pin,
         bool    isActiveLow = true,
-        uint32_t delayBetweenUs = 1000
+        uint32_t delayBetweenUs = 1000,
+        debounceMode::Mode mode = debounceMode::Mode::INTERRUPT_DRIVEN
     );
 
     // --- PUBLIC CALLBACK REGISTRATION API ---
@@ -357,6 +448,9 @@ private:
 
     // --- Timing management ---
     Delay     _delayBetweenSamples;         // Delay object (micros‐based)
+
+    // === DETECTION MODE API ===
+    debounceMode::Mode _debounceMode;       // Debounce mode (default to INTERRUPT_DRIVEN)
 
     // === GESTURE RECOGNITION API ===
     uint32_t _lastGestureTimeUs;            // Tracks time since the last time that a gesture recognition session started

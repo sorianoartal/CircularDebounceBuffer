@@ -9,6 +9,10 @@
 - Works on first press after upload
 - Works after any transition
 
+** Modes
+ - POLLING: no ISR needed, always samples in update()and debounce at the configured interval
+ - INTERRUPT_DRIVEN: call startDebounce() from raw edge ISR , then samples in update() at the configured interval when debouncing
+
 ** How does it works**
 1. Falling edge transition will trigger the ISR -> startDebounce()
 2. Once a debounce session starts- samples pin every 1ms filling the buffer
@@ -19,21 +23,53 @@
 
 @example
 ```cpp
-#include <CircularDebounceBuffer.h>
+#include <Arduino.h>
+#include "CircularDebounceBuffer.h"
+#include <stdarg.h>
 
-CircularDebounceBuffer btn(1(1, 2);
 
-void setup() {
-  Serial.begin(115200);
-  btn1.addCallback([]{ Serial.println("SHORT"); });
-  btn1.enableLongPress(1000);
-  btn1.addLongPressCallback(<a href="uint32_t ms" target="_blank" rel="noopener noreferrer nofollow"></a>{ Serial.printf("LONG: %lums\n", ms); });
-  btn1.enableDoublePress(400);
-  btn1.addDoublePressCallback([]{ Serial.println("DOUBLE!!!"); });
+static constexpr uint8_t BUTTON_PIN = 2;    // Arduino Nano pin interrupts (2,3)
+static constexpr uint8_t BUTTON2_PIN = 12;  // Arduino Nano pin
 
-  attachInterrupt(digitalPinToInterrupt(2), []{ btn1.startDebounce(); }, FALLING);
+CircularDebounceBuffer btn  = CircularDebounceBuffer::CreateInterruptDrive(0,BUTTON_PIN, true, 1000); 
+CircularDebounceBuffer btn2 = CircularDebounceBuffer::CreatePolling(1, BUTTON2_PIN, true,1000);                                  // PIN 12, active-low, polling mode 
+
+/**/
+void serialPrintf(const char* fmt, ...)
+{
+  char buf[64];              // adjust size, beware of RAM limits on AVR
+  va_list args;
+  va_start(args, fmt);
+  vsnprintf(buf, sizeof(buf), fmt, args);
+  va_end(args);
+  Serial.print(buf);
 }
 
-void loop() {
-  btn1.update();
+
+
+void setup() 
+{
+	Serial.begin(115200);
+  while(!Serial);
+
+    
+  btn.addCallback([] { Serial.println("\nSHORT PRESS!!!\n"); });
+  btn.enableLongPress(2000);
+  btn.addLongPressCallback([](uint32_t ms) { serialPrintf("\nLONG PRESS!!! : %lums\n", ms); });
+  btn.enableDoublePress(400);
+  btn.addDoublePressCallback([] { Serial.println("\nDOUBLE PRESS!!!\n"); });  
+  
+  attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), [] { btn.startDebounce(); }, FALLING);
+ 
+
+  // Polling
+  btn2.addCallback([]{Serial.println("\nSHORT PRESS!!!\n"); });
+
+ 
+ }
+ 
+void loop()
+{
+  btn.update();
+  btn2.update();
 }
